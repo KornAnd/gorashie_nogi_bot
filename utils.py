@@ -1,5 +1,4 @@
-# Размерные сетки для конвертера обуви
-# Базовая стандартная сетка размеров обуви (Мужская и Женская)
+# Текстовые калькуляторы и утилиты без сторонних серверов и веб-интерфейса
 
 SHOE_SIZE_CHART = {
     "man": [
@@ -32,54 +31,42 @@ SHOE_SIZE_CHART = {
     ]
 }
 
-def calculate_hr_zones(hr_max: int):
-    """
-    Расчёт 5 пульсовых зон на основе ЧСС max:
-    Zone 1: 60-70%
-    Zone 2: 70-75%
-    Zone 3: 75-85%
-    Zone 4: 85-95%
-    Zone 5: 95-100%
-    """
-    return [
-        {
-            "zone": 1,
-            "name": "Zone 1: Медленный бег",
-            "min": round(hr_max * 0.60),
-            "max": round(hr_max * 0.70),
-            "target": round(hr_max * 0.69),
-            "color": "#5bc0de"
-        },
-        {
-            "zone": 2,
-            "name": "Zone 2: Легкий темп",
-            "min": round(hr_max * 0.70),
-            "max": round(hr_max * 0.75),
-            "target": round(hr_max * 0.74),
-            "color": "#5cb85c"
-        },
-        {
-            "zone": 3,
-            "name": "Zone 3: Темповой бег",
-            "min": round(hr_max * 0.75),
-            "max": round(hr_max * 0.85),
-            "target": round(hr_max * 0.83),
-            "color": "#f0ad4e"
-        },
-        {
-            "zone": 4,
-            "name": "Zone 4: Бег на уровне ПАНО",
-            "min": round(hr_max * 0.85),
-            "max": round(hr_max * 0.95),
-            "target": round(hr_max * 0.92),
-            "color": "#f0803c"
-        },
-        {
-            "zone": 5,
-            "name": "Zone 5: Бег в зоне МПК",
-            "min": round(hr_max * 0.95),
-            "max": hr_max,
-            "target": round(hr_max * 0.97),
-            "color": "#d9534f"
-        }
-    ]
+def format_hr_zones_text(hr_max: int) -> str:
+    z1_min, z1_max = round(hr_max * 0.60), round(hr_max * 0.70)
+    z2_min, z2_max = round(hr_max * 0.70), round(hr_max * 0.75)
+    z3_min, z3_max = round(hr_max * 0.75), round(hr_max * 0.85)
+    z4_min, z4_max = round(hr_max * 0.85), round(hr_max * 0.95)
+    z5_min, z5_max = round(hr_max * 0.95), hr_max
+
+    return (
+        f"💓 **Пульсовые зоны для ЧСС max = {hr_max} уд/мин**:\n\n"
+        f"🟦 **Zone 1 (Медленный бег)**: {z1_min}–{z1_max} уд/мин (Цель: {round(hr_max*0.69)})\n"
+        f"🟩 **Zone 2 (Легкий темп)**: {z2_min}–{z2_max} уд/мин (Цель: {round(hr_max*0.74)})\n"
+        f"🟨 **Zone 3 (Темповой бег)**: {z3_min}–{z3_max} уд/мин (Цель: {round(hr_max*0.83)})\n"
+        f"🟧 **Zone 4 (Бег ПАНО)**: {z4_min}–{z4_max} уд/мин (Цель: {round(hr_max*0.92)})\n"
+        f"🟥 **Zone 5 (Бег МПК)**: {z5_min}–{z5_max} уд/мин (Цель: {round(hr_max*0.97)})"
+    )
+
+def pace_to_speed_text(pace_str: str) -> str:
+    try:
+        parts = pace_str.split(':')
+        mins = int(parts[0])
+        secs = int(parts[1])
+        total_hours = (mins * 60 + secs) / 3600
+        if total_hours <= 0:
+            return "Ошибка ввода."
+        speed = round(1 / total_hours, 2)
+        return f"⚡ Темп **{pace_str} мин/км** = **{speed} км/ч**"
+    except Exception:
+        return "⚠️ Введите темп в формате `МИН:СЕК`, например `05:30`"
+
+def speed_to_pace_text(speed_val: float) -> str:
+    try:
+        if speed_val <= 0:
+            return "Ошибка ввода."
+        total_secs = round(3600 / speed_val)
+        mins = total_secs // 60
+        secs = total_secs % 60
+        return f"⚡ Скорость **{speed_val} км/ч** = **{mins:02d}:{secs:02d} мин/км**"
+    except Exception:
+        return "⚠️ Введите числовую скорость, например `12.5`"
