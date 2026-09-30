@@ -8,10 +8,13 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.client.session.aiohttp import AiohttpSession
 
 BOT_TOKEN = "8890631054:AAHA3rEfyyBXMRfisCek2A-ZRjdCGoQYPxk"
 
-bot = Bot(token=BOT_TOKEN)
+# Используем прокси для преодоления ограничений PythonAnywhere
+session = AiohttpSession(proxy="http://proxy.server:3128")
+bot = Bot(token=BOT_TOKEN, session=session)
 dp = Dispatcher()
 
 # --- FSM Состояния ---
@@ -308,7 +311,6 @@ async def process_dist_time(message: types.Message, state: FSMContext):
 async def shoe_menu(message: types.Message, state: FSMContext):
     await state.set_state(Form.shoe_size)
     
-    # Формируем сводную шпаргалку популярный размеров
     table_preview = (
         "📋 <b>ШПАРГАЛКА ПОПУЛЯРНЫХ РАЗМЕРОВ:</b>\n"
         "<code>"
@@ -360,7 +362,7 @@ async def process_shoe(message: types.Message, state: FSMContext):
         await message.answer("⚠️ Введите только число (например, <code>10</code> или <code>28</code>):", parse_mode="HTML")
 
 async def main():
-    print("🤖 Стилизованный бот 'Горящие Ноги' с подсказами и таблицей кроссовок запущен...")
+    print("🤖 Стилизованный бот 'Горящие Ноги' с прокси запущен...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
