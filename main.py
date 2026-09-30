@@ -1,5 +1,6 @@
 import os
 import asyncio
+import re
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import (
@@ -12,7 +13,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 BOT_TOKEN = "8890631054:AAHA3rEfyyBXMRfisCek2A-ZRjdCGoQYPxk"
 
-# Используем прокси для преодоления ограничений PythonAnywhere
+# Подключение через прокси PythonAnywhere
 session = AiohttpSession(proxy="http://proxy.server:3128")
 bot = Bot(token=BOT_TOKEN, session=session)
 dp = Dispatcher()
@@ -37,6 +38,40 @@ def get_main_keyboard():
         ],
         resize_keyboard=True
     )
+
+# --- Универсальный парсер времени ---
+def parse_time_to_seconds(time_str: str) -> int:
+    """
+    Разбирает время из самых разных форматов:
+    '03:30:00' -> 3 часа 30 минут
+    '3:30:00'  -> 3 часа 30 минут
+    '03:30'    -> 3 часа 30 минут (если первое число <= 5 и контекст марафона/длинной дистанции) ИЛИ 3 мин 30 сек
+    '50:00'    -> 50 минут
+    '1:45:00'  -> 1 час 45 минут
+    Разделителями могут быть двоеточие, точка или запятая.
+    """
+    cleaned = re.sub(r'[.,;]', ':', time_str.strip())
+    parts = [int(p) for p in cleaned.split(':') if p.isdigit()]
+    
+    if len(parts) == 3:
+        # ЧЧ:ММ:СС
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    elif len(parts) == 2:
+        val1, val2 = parts[0], parts[1]
+        # Если формат вида 3:30 или 03:30 для марафона - это 3 часа 30 минут (12600 сек)
+        # Если человек бежит марафон/длинную дистанцию, 3:30 - это 3 часа 30 мин!
+        # Но если 50:00 - это 50 минут.
+        # Анализируем: если val1 <= 5, вероятнее всего человек имеет в виду ЧАШИ:МИНУТЫ (например 3:30 или 4:15)
+        # Если val1 > 5 (например 25:30 или 50:00), это МИНУТЫ:СЕКУНДЫ
+        if val1 <= 5:
+            return val1 * 3600 + val2 * 60
+        else:
+            return val1 * 60 + val2
+    elif len(parts) == 1:
+        # Только минуты
+        return parts[0] * 60
+    else:
+        raise ValueError("Неверный формат времени")
 
 # --- Форматирование Пульсовых Зон ---
 def calc_hr_zones(hr_max: int) -> str:
@@ -128,7 +163,8 @@ async def hr_by_max_handler(call: types.CallbackQuery, state: FSMContext):
 @dp.message(Form.waiting_hr_max)
 async def process_hr_max(message: types.Message, state: FSMContext):
     try:
-        hr = int(message.text.strip())
+        clean_text = re.sub(r'[^\d]', '', message.text)
+        hr = int(clean_text)
         if hr < 100 or hr > 240:
             await message.answer("⚠️ Пожалуйста, введите реальный пульс (от 100 до 240 уд/мин):")
             return
@@ -153,7 +189,8 @@ async def hr_by_age_handler(call: types.CallbackQuery, state: FSMContext):
 @dp.message(Form.waiting_hr_age)
 async def process_hr_age(message: types.Message, state: FSMContext):
     try:
-        age = int(message.text.strip())
+        clean_text = re.sub(r'[^\d]', '', message.text)
+        age = int(clean_text)
         if age < 10 or age > 100:
             await message.answer("⚠️ Пожалуйста, введите корректный возраст (от 10 до 100 лет):")
             return
@@ -187,7 +224,7 @@ async def p2s_start(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer(
         "✏️ <b>Введите темп (мин/км):</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 <i>Подсказка: Вводите минут и секунды через двоеточие.</i>\n\n"
+        "💡 <i>Подсказка: Принимаются форматы 05:30, 5:30, 5.30 или 5,30</i>\n\n"
         "📌 <i>Пример: <code>05:30</code> или <code>4:45</code></i>",
         parse_mode="HTML"
     )
@@ -196,9 +233,11 @@ async def p2s_start(call: types.CallbackQuery, state: FSMContext):
 @dp.message(Form.pace_to_speed)
 async def process_p2s(message: types.Message, state: FSMContext):
     try:
-        parts = message.text.strip().split(":")
-        mins = int(parts[0])
-        secs = int(parts[1])
+        cleaned = re.sub(r'[.,;]', ':', message.text.strip())
+        parts = [int(p) for p in cleaned.split(":") if p.isdigit()]
+        if len(parts) < 2:
+            raise ValueError()
+        mins, secs = parts[0], parts[1]
         total_hours = (mins * 60 + secs) / 3600
         speed = round(1 / total_hours, 2)
         
@@ -212,7 +251,7 @@ async def process_p2s(message: types.Message, state: FSMContext):
         await message.answer(res, parse_mode="HTML")
         await state.clear()
     except Exception:
-        await message.answer("⚠️ Неверный формат! Введите темп через двоеточие, например <code>05:30</code>", parse_mode="HTML")
+        await message.answer("⚠️ Неверный формат! Введите темп, например <code>05:30</code> или <code>5.30</code>", parse_mode="HTML")
 
 @dp.callback_query(F.data == "s2p")
 async def s2p_start(call: types.CallbackQuery, state: FSMContext):
@@ -220,7 +259,7 @@ async def s2p_start(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer(
         "✏️ <b>Введите скорость (км/ч):</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 <i>Подсказка: Введите скорость с беговой дорожки.</i>\n\n"
+        "💡 <i>Подсказка: Вводите с точкой или запятой (12.5 или 12,5).</i>\n\n"
         "📌 <i>Пример: <code>12.5</code> или <code>10</code></i>",
         parse_mode="HTML"
     )
@@ -229,7 +268,8 @@ async def s2p_start(call: types.CallbackQuery, state: FSMContext):
 @dp.message(Form.speed_to_pace)
 async def process_s2p(message: types.Message, state: FSMContext):
     try:
-        sp = float(message.text.replace(",", "."))
+        clean_text = message.text.replace(",", ".").strip()
+        sp = float(clean_text)
         total_secs = round(3600 / sp)
         mins = total_secs // 60
         secs = total_secs % 60
@@ -244,7 +284,7 @@ async def process_s2p(message: types.Message, state: FSMContext):
         await message.answer(res, parse_mode="HTML")
         await state.clear()
     except Exception:
-        await message.answer("⚠️ Введите числовое значение (например, <code>12.5</code>):", parse_mode="HTML")
+        await message.answer("⚠️ Введите числовое значение (например, <code>12.5</code> или <code>12,5</code>):", parse_mode="HTML")
 
 # ---------------- 3. ДИСТАНЦИЯ / ВРЕМЯ -> ТЕМП ----------------
 @dp.message(F.text == "📏 Дистанция / Время ➔ Темп")
@@ -253,45 +293,53 @@ async def dist_time_menu(message: types.Message, state: FSMContext):
     await message.answer(
         "📏 <b>КАЛЬКУЛЯТОР ТЕМПА И СКОРОСТИ</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 <i>Подсказка: Рассчитывает ваш средний темп и скорость за забег или тренировку. Введите дистанцию (в километрах) и итоговое время пробежки через пробел.</i>\n\n"
+        "💡 <i>Подсказка: Введите дистанцию (в километрах) и итоговое время пробежки через пробел. Разделителями времени могут быть двоеточие, точка или запятая.</i>\n\n"
         "✏️ <b>Формат ввода:</b> <code>ДИСТАНЦИЯ ВРЕМЯ</code>\n"
-        "• Время указывается как <code>ММ:СС</code> или <code>ЧЧ:ММ:СС</code>\n\n"
+        "• Дистанция: <code>42</code>, <code>42.2</code> или <code>42,2</code>\n"
+        "• Время на марафон: <code>3:30:00</code> или <code>03:30:00</code> (3 часа 30 минут)\n"
+        "• Время на 10 км: <code>50:00</code> (50 минут)\n\n"
         "📌 <b>Примеры ввода:</b>\n"
+        "• <code>42.2 03:30:00</code> (Марафон 42.2 км за 3ч 30м)\n"
         "• <code>10 50:00</code> (10 км за 50 минут)\n"
-        "• <code>21.1 1:45:00</code> (Полумарафон за 1 час 45 минут)\n"
-        "• <code>5 24:30</code> (5 км за 24 минуты 30 секунд)",
+        "• <code>21.1 1:45:00</code> (Полумарафон за 1ч 45м)\n"
+        "• <code>5 24.30</code> (5 км за 24м 30с)",
         parse_mode="HTML"
     )
 
 @dp.message(Form.dist_time_for_pace)
 async def process_dist_time(message: types.Message, state: FSMContext):
     try:
-        parts = message.text.strip().split()
+        text = message.text.strip()
+        parts = text.split()
         if len(parts) != 2:
             raise ValueError()
         
-        dist = float(parts[0].replace(",", "."))
+        dist_str = parts[0].replace(",", ".")
+        dist = float(dist_str)
         time_str = parts[1]
         
-        t_parts = [int(x) for x in time_str.split(":")]
-        if len(t_parts) == 3:
-            total_sec = t_parts[0] * 3600 + t_parts[1] * 60 + t_parts[2]
-        elif len(t_parts) == 2:
-            total_sec = t_parts[0] * 60 + t_parts[1]
-        else:
-            raise ValueError()
-
+        total_sec = parse_time_to_seconds(time_str)
+        
         pace_sec = round(total_sec / dist)
         p_min = pace_sec // 60
         p_sec = pace_sec % 60
         
         speed = round((dist / (total_sec / 3600)), 2)
 
+        # Вывод красивого формата времени в ответе
+        h = total_sec // 3600
+        m = (total_sec % 3600) // 60
+        s = total_sec % 60
+        if h > 0:
+            pretty_time = f"{h} ч {m:02d} мин {s:02d} сек"
+        else:
+            pretty_time = f"{m} мин {s:02d} сек"
+
         res = (
             f"📊 <b>РЕЗУЛЬТАТ РАСЧЁТА</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"📍 Дистанция: <b>{dist} км</b>\n"
-            f"⏱️ Итоговое время: <b>{time_str}</b>\n\n"
+            f"⏱️ Итоговое время: <b>{pretty_time}</b>\n\n"
             f"🔥 <b>Средний темп: {p_min:02d}:{p_sec:02d} мин/км</b>\n"
             f"⚡ Средняя скорость: <b>{speed} км/ч</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
@@ -302,7 +350,8 @@ async def process_dist_time(message: types.Message, state: FSMContext):
         await message.answer(
             "⚠️ <b>Ошибка формата ввода!</b>\n"
             "Пожалуйста, введите дистанцию и время через пробел.\n"
-            "Пример: <code>10 50:00</code> или <code>21.1 1:45:00</code>",
+            "Пример для марафона: <code>42.2 03:30:00</code> (42.2 км за 3 часа 30 минут)\n"
+            "Пример для 10 км: <code>10 50:00</code>",
             parse_mode="HTML"
         )
 
@@ -326,7 +375,7 @@ async def shoe_menu(message: types.Message, state: FSMContext):
     await message.answer(
         "👟 <b>КАЛЬКУЛЯТОР РАЗМЕРОВ КРОССОВОК</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 <i>Подсказка: Переводит ваш размер обуви между всеми мировыми сетками (US, EUR, RUS, UK, CM). Вы можете ввести либо размер US, либо длину стопы в см.</i>\n\n"
+        "💡 <i>Подсказка: Принимает размер US или CM в любых форматах (10, 10.5, 10,5, 28 см).</i>\n\n"
         f"{table_preview}\n\n"
         "✏️ <b>Введите точный размер US или стопу в СМ:</b>\n"
         "📌 <i>Пример: <code>10</code> (для US) или <code>28</code> (для СМ)</i>",
@@ -336,7 +385,8 @@ async def shoe_menu(message: types.Message, state: FSMContext):
 @dp.message(Form.shoe_size)
 async def process_shoe(message: types.Message, state: FSMContext):
     try:
-        val = float(message.text.replace(",", "."))
+        clean_text = re.sub(r'[^\d.,]', '', message.text).replace(",", ".")
+        val = float(clean_text)
         match = None
         for r in SHOE_TABLE:
             if abs(r["us"] - val) < 0.3 or abs(r["cm"] - val) < 0.3:
@@ -359,10 +409,10 @@ async def process_shoe(message: types.Message, state: FSMContext):
             await message.answer("⚠️ Размер не найден в сетке. Попробуйте US от 7 до 12 или CM от 25 до 30.")
         await state.clear()
     except Exception:
-        await message.answer("⚠️ Введите только число (например, <code>10</code> или <code>28</code>):", parse_mode="HTML")
+        await message.answer("⚠️ Введите числовое значение (например, <code>10</code> или <code>28</code>):", parse_mode="HTML")
 
 async def main():
-    print("🤖 Стилизованный бот 'Горящие Ноги' с прокси запущен...")
+    print("🤖 Стилизованный бот 'Горящие Ноги' с интеллектуальным парсингом времени запущен...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
